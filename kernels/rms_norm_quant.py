@@ -102,7 +102,7 @@ def _quantize_kernel(
 
     scale = max_abs / 127.0
     # Avoid division by zero for zero rows
-    scale = tl.where(scale == 0.0, tl.ones_like(scale), scale)
+    scale = tl.where(scale == 0.0, 1.0, scale)
 
     q = norm_vals / scale
     # Clamp to int8 range (portable, avoids tl.clamp API differences across Triton versions)
