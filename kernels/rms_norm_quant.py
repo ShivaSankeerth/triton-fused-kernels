@@ -62,7 +62,8 @@ def _rms_norm_fwd_kernel(
         abs_chunk = tl.where(mask, abs_chunk, tl.zeros_like(abs_chunk))
         max_abs = tl.maximum(max_abs, tl.max(abs_chunk, axis=0))
 
-    tl.store(max_abs_ptr + pid, max_abs)
+    # tl.sum on a [1] tensor gives a scalar — required for scalar pointer store in Triton 3.x
+    tl.store(max_abs_ptr + pid, tl.sum(max_abs, axis=0))
 
 
 @triton.autotune(
@@ -104,8 +105,10 @@ def _quantize_kernel(
     scale = tl.where(scale == 0.0, tl.ones_like(scale), scale)
 
     q = norm_vals / scale
-    q = tl.clamp(q, -128.0, 127.0)
-    q = tl.extra.cuda.libdevice.round(q).to(tl.int8)
+    # Clamp to int8 range (portable, avoids tl.clamp API differences across Triton versions)
+    q = tl.minimum(tl.maximum(q, -128.0), 127.0)
+    # Round half-away-from-zero, then cast to int8 (avoids libdevice dependency)
+    q = (q + tl.where(q >= 0.0, 0.5, -0.5)).to(tl.int32).to(tl.int8)
 
     tl.store(out_ptr + offsets, q, mask=mask)
 
